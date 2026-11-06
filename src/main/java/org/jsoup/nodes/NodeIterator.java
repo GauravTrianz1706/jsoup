@@ -1,6 +1,7 @@
 package org.jsoup.nodes;
 
 import org.jsoup.helper.Validate;
+import org.jsoup.helper.GracefulShutdownManager;
 import org.jspecify.annotations.Nullable;
 
 import java.util.Iterator;
@@ -90,7 +91,8 @@ public class NodeIterator<T extends Node> implements Iterator<T> {
 
     private @Nullable T findNextNode() {
         Node node = current;
-        while (true) {
+        // Check shutdown flag to allow graceful termination on SIGTERM (EKS/ECS cloud environments)
+        while (!GracefulShutdownManager.isShuttingDown()) {
             if (node.childNodeSize() > 0)
                 node = node.childNode(0);                   // descend children
             else if (root.equals(node))
@@ -98,7 +100,8 @@ public class NodeIterator<T extends Node> implements Iterator<T> {
             else if (node.nextSibling() != null)
                 node = node.nextSibling();                  // in a descendant with no more children; traverse
             else {
-                while (true) {
+                // Check shutdown flag to allow graceful termination on SIGTERM (EKS/ECS cloud environments)
+                while (!GracefulShutdownManager.isShuttingDown()) {
                     node = node.parent();                   // pop out of descendants
                     if (node == null || root.equals(node))
                         return null;                        // got back to root; complete

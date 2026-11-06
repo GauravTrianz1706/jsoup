@@ -5,13 +5,14 @@ import com.google.gson.reflect.TypeToken;
 import org.jsoup.Connection;
 import org.jsoup.Jsoup;
 
-import java.io.File;
-import java.io.FileWriter;
 import java.io.IOException;
-import java.nio.file.Files;
+import java.io.StringWriter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Map;
+import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
 /**
  * Fetches HTML entity names from w3.org json, and outputs data files for optimized used in Entities.
@@ -71,16 +72,27 @@ class BuildEntities {
     }
 
     private static void persist(String name, ArrayList<CharacterRef> refs) throws IOException {
-        File file = Files.createTempFile(name, ".txt").toFile();
-        FileWriter writer = new FileWriter(file, false);
+        // Replaced hard-coded local temp file with Amazon S3 object storage (AWS SDK v2)
+        StringWriter writer = new StringWriter();
         writer.append("static final String points = \"");
         for (CharacterRef ref : refs) {
             writer.append(ref.toString()).append('&');
         }
         writer.append("\";\n");
-        writer.close();
 
-        System.out.println("Wrote " + name + " to " + file.getAbsolutePath());
+        String content = writer.toString();
+        String bucketName = System.getenv().getOrDefault("AWS_S3_BUCKET", "jsoup-entities-output");
+        String key = name + ".txt";
+
+        try (S3Client s3 = S3Client.create()) {
+            PutObjectRequest putRequest = PutObjectRequest.builder()
+                .bucket(bucketName)
+                .key(key)
+                .build();
+            s3.putObject(putRequest, RequestBody.fromString(content));
+        }
+
+        System.out.println("Wrote " + name + " to s3://" + bucketName + "/" + key);
     }
 
 

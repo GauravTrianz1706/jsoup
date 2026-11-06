@@ -59,12 +59,17 @@ import static org.jsoup.internal.SharedConstants.DefaultBufferSize;
 @SuppressWarnings("CharsetObjectCanBeUsed")
 public class HttpConnection implements Connection {
     public static final String CONTENT_ENCODING = "Content-Encoding";
+    /** Environment variable name for overriding the default User-Agent string via AWS Secrets Manager or env config. */
+    static final String DEFAULT_UA_ENV_VAR = "JSOUP_DEFAULT_UA";
+    private static final String FALLBACK_UA =
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36";
     /**
      * Many users would get caught by not setting a user-agent and therefore getting different responses on their desktop
      * vs in jsoup, which would otherwise default to {@code Java}. So by default, use a desktop UA.
+     * The value is resolved from the environment variable {@value #DEFAULT_UA_ENV_VAR} at runtime;
+     * if not set, the built-in fallback UA string is used.
      */
-    public static final String DEFAULT_UA =
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36";
+    public static final String DEFAULT_UA = resolveDefaultUserAgent();
     private static final String USER_AGENT = "User-Agent";
     public static final String CONTENT_TYPE = "Content-Type";
     public static final String MULTIPART_FORM_DATA = "multipart/form-data";
@@ -75,6 +80,22 @@ public class HttpConnection implements Connection {
     private HttpConnection.Request req;
     private Connection.@Nullable Response res;
     volatile @Nullable Object clientState; // Java 11 HttpClient state, held as Object for Java 8 compatibility
+
+    /**
+     * Resolves the default User-Agent string from the environment variable {@value #DEFAULT_UA_ENV_VAR}.
+     * In cloud environments (AWS), this value can be managed via AWS Secrets Manager or AWS Systems Manager
+     * Parameter Store and injected as an environment variable, avoiding hard-coded values in source code.
+     * Falls back to the built-in UA string when the environment variable is not set.
+     *
+     * @return the User-Agent string to use as the default
+     */
+    private static String resolveDefaultUserAgent() {
+        String envUa = System.getenv(DEFAULT_UA_ENV_VAR);
+        if (envUa != null && !envUa.isEmpty()) {
+            return envUa;
+        }
+        return FALLBACK_UA;
+    }
 
     /**
      Create a new Connection, with the request URL specified.

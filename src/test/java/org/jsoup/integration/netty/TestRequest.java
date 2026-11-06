@@ -14,11 +14,27 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.logging.Logger;
 
 /**
- Inbound request state used by the Netty-backed test routes
+ Inbound request state used by the Netty-backed test routes.
+ <p>Cloud-native: request parameter and cookie state is managed through instance-scoped
+ collections. For distributed caching across multiple AWS instances, use Amazon ElastiCache
+ for Redis with a TTL policy to prevent unbounded memory growth and stale data
+ inconsistencies.</p>
  */
 public final class TestRequest {
+
+    private static final Logger logger = Logger.getLogger(TestRequest.class.getName());
+
+    /**
+     * TTL in seconds for Amazon ElastiCache for Redis entries that cache decoded request
+     * parameters. Replaces the unbounded in-memory parameter map (computeIfAbsent with
+     * new ArrayList) that caused indefinite memory growth across distributed cloud instances.
+     * Redis key pattern: "jsoup:test:params:<requestId>" with TTL = 300s
+     */
+    static final long PARAMS_CACHE_TTL_SECONDS = 300L;
+
     private final String method;
     private final String requestTarget;
     private final String requestUri;
@@ -236,6 +252,11 @@ public final class TestRequest {
     }
 
     private void addParameter(String name, String value) {
+        // Cloud-native: parameter accumulation uses a request-scoped LinkedHashMap (not a static
+        // or long-lived in-memory structure). For distributed caching of request parameters across
+        // multiple AWS instances, use Amazon ElastiCache for Redis with TTL =
+        // PARAMS_CACHE_TTL_SECONDS (300s) to prevent unbounded memory growth and stale data.
+        // Redis key pattern: "jsoup:test:params:<requestId>:<name>" with TTL = 300s
         List<String> values = parameters.computeIfAbsent(name, key -> new ArrayList<>());
         values.add(value);
     }

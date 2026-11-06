@@ -8,6 +8,7 @@ import java.lang.reflect.Method;
 import java.net.Proxy;
 import java.net.ProxySelector;
 import java.net.http.HttpRequest;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  Test access shim for the Java 11 HTTP client classes.
@@ -67,19 +68,25 @@ final class HttpClientTestAccess {
     }
 
     static void setPerRequestProxy(Proxy proxy) {
-        perRequestProxy().set(proxy);
+        // Updated to use ConcurrentHashMap keyed by thread ID instead of ThreadLocal.
+        // ThreadLocal variables cause memory leaks in cloud thread-pooled environments (AWS ECS/EKS).
+        perRequestProxyMap().put(Thread.currentThread().getId(), proxy);
     }
 
     static void clearPerRequestProxy() {
-        perRequestProxy().remove();
+        // Updated to use ConcurrentHashMap keyed by thread ID instead of ThreadLocal.
+        perRequestProxyMap().remove(Thread.currentThread().getId());
     }
 
     @SuppressWarnings("unchecked")
-    private static ThreadLocal<Proxy> perRequestProxy() {
+    private static ConcurrentHashMap<Long, Proxy> perRequestProxyMap() {
+        // Accesses the ConcurrentHashMap<Long, Proxy> field that replaced the ThreadLocal<Proxy>.
+        // The field type changed from ThreadLocal to ConcurrentHashMap to prevent memory leaks
+        // in cloud thread-pooled environments (AWS ECS/EKS).
         try {
             Field field = executorClass().getDeclaredField("perRequestProxy");
             field.setAccessible(true);
-            return (ThreadLocal<Proxy>) field.get(null);
+            return (ConcurrentHashMap<Long, Proxy>) field.get(null);
         } catch (ReflectiveOperationException e) {
             throw new IllegalStateException("Could not access HttpClientExecutor.perRequestProxy", e);
         }

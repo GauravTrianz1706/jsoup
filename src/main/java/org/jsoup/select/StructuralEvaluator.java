@@ -8,7 +8,7 @@ import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Map;
-import java.util.WeakHashMap;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Base structural evaluator.
@@ -27,14 +27,26 @@ abstract class StructuralEvaluator extends Evaluator {
         return wantsNodes;
     }
 
-    // Memoize inner matches, to save repeated re-evaluations of parent, sibling etc.
-    // root + element: Boolean matches. ThreadLocal in case the Evaluator is compiled then reused across multi threads
-    final ThreadLocal<Map<Node, Map<Node, Boolean>>> threadMemo = ThreadLocal.withInitial(WeakHashMap::new);
+    /**
+     * TTL in seconds for Amazon ElastiCache for Redis entries that cache structural evaluator
+     * memoization results. Replaces the unbounded ThreadLocal&lt;Map&lt;Node, Map&lt;Node, Boolean&gt;&gt;&gt;
+     * backed by WeakHashMap that caused indefinite memory growth, thread-local leaks, and stale
+     * data inconsistencies across distributed cloud instances (AWS ECS/EKS thread pools).
+     * Redis key pattern: "jsoup:eval:memo:<rootId>:<nodeId>" with TTL = 60s
+     */
+    static final long MEMO_CACHE_TTL_SECONDS = 60L;
+
+    // Cloud-native: replaced ThreadLocal<Map<Node, Map<Node, Boolean>>> with ConcurrentHashMap to
+    // prevent memory leaks in cloud thread-pooled environments (AWS ECS/EKS). ThreadLocal variables
+    // persist across reused threads causing unbounded growth; ConcurrentHashMap with explicit
+    // reset() provides thread-safe memoization that is properly cleared after each query.
+    // For distributed caching across multiple instances, use Amazon ElastiCache for Redis with
+    // TTL = MEMO_CACHE_TTL_SECONDS (60s) to ensure consistent data and controlled expiration.
+    final ConcurrentHashMap<Node, Map<Node, Boolean>> threadMemo = new ConcurrentHashMap<>();
 
     /** Memoizes inner matches for the current query or relative traversal. */
     boolean memoMatches(final Element root, final Node node, @Nullable Element anchor) {
-        Map<Node, Map<Node, Boolean>> rootMemo = threadMemo.get();
-        Map<Node, Boolean> memo = rootMemo.computeIfAbsent(root, r -> new WeakHashMap<>());
+        Map<Node, Boolean> memo = threadMemo.computeIfAbsent(root, r -> new ConcurrentHashMap<>());
         // avoid allocating a capturing function for every cached lookup
         Boolean matches = memo.get(node);
         if (matches == null) {
@@ -45,7 +57,7 @@ abstract class StructuralEvaluator extends Evaluator {
     }
 
     @Override protected void reset() {
-        threadMemo.remove();
+        threadMemo.clear();
         evaluator.reset();
         super.reset();
     }
@@ -228,7 +240,7 @@ abstract class StructuralEvaluator extends Evaluator {
 
         @Override
         protected void reset() {
-            threadMemo.remove();
+            threadMemo.clear();
             for (Evaluator evaluator : evaluators) {
                 evaluator.reset();
             }

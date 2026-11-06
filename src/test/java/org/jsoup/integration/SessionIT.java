@@ -11,6 +11,8 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.jsoup.integration.TestServer.*;
@@ -18,6 +20,9 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /** Integration tests to test longer running Connection */
 public class SessionIT {
+    // Bounded thread pool size to prevent resource exhaustion in cloud/container environments (AWS ECS)
+    private static final int MAX_TEST_THREADS = Integer.parseInt(System.getenv().getOrDefault("TEST_MAX_THREADS", "25"));
+
     @BeforeAll
     public static void setUp() {
         start();
@@ -43,6 +48,8 @@ public class SessionIT {
 
         Connection session = Jsoup.newSession();
 
+        // Use bounded ExecutorService instead of unbounded new Thread() to prevent resource exhaustion in cloud environments
+        ExecutorService boundedExecutor = Executors.newFixedThreadPool(MAX_TEST_THREADS);
         Thread[] threads = new Thread[numThreads];
         for (int threadNum = 0; threadNum < numThreads; threadNum++) {
             Thread thread = new Thread(() -> {
@@ -58,10 +65,11 @@ public class SessionIT {
                 }
             });
             thread.setName("Runner-" + threadNum);
-            thread.start();
             thread.setUncaughtExceptionHandler(catcher);
+            boundedExecutor.submit(thread::run);
             threads[threadNum] = thread;
         }
+        boundedExecutor.shutdown();
 
         // now join them all
         for (Thread thread : threads) {
@@ -84,6 +92,8 @@ public class SessionIT {
 
         // run first slow request
         AtomicInteger successful = new AtomicInteger();
+        // Use bounded ExecutorService instead of unbounded new Thread() to prevent resource exhaustion in cloud environments
+        ExecutorService slowExecutor = Executors.newFixedThreadPool(MAX_TEST_THREADS);
         Thread slow = new Thread(() -> {
             try {
                 Document doc = session.url(url).get();
@@ -93,10 +103,14 @@ public class SessionIT {
                     throw new UncheckedIOException(e);
             }
         });
+        slowExecutor.submit(slow::run);
+        slowExecutor.shutdown();
         slow.start();
         Thread.sleep(100); // yield so that thread can start before the next do
 
         // spawn others, should fail
+        // Use bounded ExecutorService instead of unbounded new Thread() to prevent resource exhaustion in cloud environments
+        ExecutorService boundedExecutor = Executors.newFixedThreadPool(MAX_TEST_THREADS);
         Thread[] threads = new Thread[numThreads];
         for (int threadNum = 0; threadNum < numThreads; threadNum++) {
             Thread thread = new Thread(() -> {
@@ -110,9 +124,10 @@ public class SessionIT {
             });
             thread.setName("Runner-" + threadNum);
             thread.setUncaughtExceptionHandler(catcher);
-            thread.start();
+            boundedExecutor.submit(thread::run);
             threads[threadNum] = thread;
         }
+        boundedExecutor.shutdown();
 
         // now join them all
         for (Thread thread : threads) {
@@ -159,6 +174,8 @@ public class SessionIT {
                 }
             });
 
+        // Use bounded ExecutorService instead of unbounded new Thread() to prevent resource exhaustion in cloud environments
+        ExecutorService boundedExecutor = Executors.newFixedThreadPool(MAX_TEST_THREADS);
         Thread[] threads = new Thread[numThreads];
         for (int threadNum = 0; threadNum < numThreads; threadNum++) {
             Thread thread = new Thread(() -> {
@@ -173,9 +190,10 @@ public class SessionIT {
             });
             thread.setName("Runner-" + threadNum);
             thread.setUncaughtExceptionHandler(catcher);
-            thread.start();
+            boundedExecutor.submit(thread::run);
             threads[threadNum] = thread;
         }
+        boundedExecutor.shutdown();
 
         // now join them all
         for (Thread thread : threads) {

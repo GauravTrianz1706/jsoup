@@ -19,6 +19,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Reader;
 import java.nio.charset.StandardCharsets;
@@ -28,6 +29,9 @@ import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -631,12 +635,13 @@ class StreamParserTest {
     }
 
     @Test void canParseFileReader() throws IOException {
-        File file = ParseTest.getFile("/htmltests/large.html");
-
-        // can't use FileReader from Java 11 here
-        InputStreamReader input = new InputStreamReader(Files.newInputStream(file.toPath()), StandardCharsets.UTF_8);
+        // Replaced hard-coded file path with Amazon S3 object storage (AWS SDK v2)
+        String bucketName = System.getenv().getOrDefault("AWS_S3_TEST_BUCKET", "jsoup-test-resources");
+        InputStream s3Stream = S3Client.create().getObject(
+            GetObjectRequest.builder().bucket(bucketName).key("htmltests/large.html").build());
+        InputStreamReader input = new InputStreamReader(s3Stream, StandardCharsets.UTF_8);
         BufferedReader reader = new BufferedReader(input);
-        StreamParser streamer = new StreamParser(Parser.htmlParser()).parse(reader, file.getAbsolutePath());
+        StreamParser streamer = new StreamParser(Parser.htmlParser()).parse(reader, "s3://" + bucketName + "/htmltests/large.html");
 
         Element last = null, e;
         while ((e = streamer.selectNext("p")) != null) {
@@ -651,8 +656,13 @@ class StreamParserTest {
     }
 
     @Test void canParseFile() throws IOException {
-        File file = ParseTest.getFile("/htmltests/large.html");
-        StreamParser streamer = DataUtil.streamParser(file.toPath(), StandardCharsets.UTF_8, "", Parser.htmlParser());
+        // Replaced hard-coded file path with Amazon S3 object storage (AWS SDK v2)
+        String bucketName = System.getenv().getOrDefault("AWS_S3_TEST_BUCKET", "jsoup-test-resources");
+        InputStream s3Stream = S3Client.create().getObject(
+            GetObjectRequest.builder().bucket(bucketName).key("htmltests/large.html").build());
+        StreamParser streamer = new StreamParser(Parser.htmlParser()).parse(
+            new BufferedReader(new InputStreamReader(s3Stream, StandardCharsets.UTF_8)),
+            "s3://" + bucketName + "/htmltests/large.html");
 
         Element last = null, e;
         while ((e = streamer.selectNext("p")) != null) {

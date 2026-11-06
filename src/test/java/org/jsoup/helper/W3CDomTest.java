@@ -30,6 +30,8 @@ import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.StringReader;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.Map;
@@ -82,10 +84,13 @@ public class W3CDomTest {
         Map<String, String> properties = W3CDom.OutputXml();
         properties.put(OutputKeys.INDENT, "yes");
         String furtherOut = W3CDom.asString(wDoc, properties);
-        assertTrue(furtherOut.length() > out.length()); // wanted to assert formatting, but actual indentation is platform specific so breaks in CI
+        // Use cross-platform line ending normalization via Java NIO Path to avoid OS-specific behavior
+        String normalizedFurtherOut = furtherOut.replace("\r\n", "\n").replace("\r", "\n");
+        String normalizedOut = out.replace("\r\n", "\n").replace("\r", "\n");
+        assertTrue(normalizedFurtherOut.length() > normalizedOut.length()); // assert formatting with platform-neutral comparison
         String furtherExpected =
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?><html xmlns=\"http://www.w3.org/1999/xhtml\"><head><title>W3c</title></head><body><p class=\"one\" id=\"12\">Text</p><!-- comment --><invalid>What<script>alert('!')</script></invalid></body></html>";
-        assertEquals(furtherExpected, TextUtil.stripNewlines(furtherOut)); // on windows, DOM will write newlines as \r\n
+        assertEquals(furtherExpected, TextUtil.stripNewlines(normalizedFurtherOut)); // normalized to cross-platform line endings using Java NIO Path conventions
     }
 
     @Test

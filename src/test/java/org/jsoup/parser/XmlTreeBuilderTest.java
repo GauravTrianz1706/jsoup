@@ -6,13 +6,12 @@ import org.jsoup.nodes.*;
 import org.jsoup.select.Elements;
 import org.junit.jupiter.api.Test;
 
-import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 
 import static org.jsoup.nodes.Document.OutputSettings.Syntax;
 import static org.jsoup.parser.Parser.NamespaceHtml;
@@ -63,9 +62,11 @@ public class XmlTreeBuilderTest {
     }
 
     @Test
-    public void testSupplyParserToDataStream() throws IOException, URISyntaxException {
-        File xmlFile = new File(XmlTreeBuilder.class.getResource("/htmltests/xml-test.xml").toURI());
-        InputStream inStream = new FileInputStream(xmlFile);
+    public void testSupplyParserToDataStream() throws IOException {
+        // Replaced hard-coded file path with Amazon S3 object storage (AWS SDK v2)
+        String bucketName = System.getenv().getOrDefault("AWS_S3_TEST_BUCKET", "jsoup-test-resources");
+        InputStream inStream = S3Client.create().getObject(
+            GetObjectRequest.builder().bucket(bucketName).key("htmltests/xml-test.xml").build());
         Document doc = Jsoup.parse(inStream, null, "http://foo.com", Parser.xmlParser());
         assertEquals("<doc><val>One<val>Two</val>Three</val></doc>",
                 TextUtil.stripNewlines(doc.html()));
@@ -112,9 +113,11 @@ public class XmlTreeBuilderTest {
     }
 
     @Test
-    public void testDetectCharsetEncodingDeclaration() throws IOException, URISyntaxException {
-        File xmlFile = new File(XmlTreeBuilder.class.getResource("/htmltests/xml-charset.xml").toURI());
-        InputStream inStream = new FileInputStream(xmlFile);
+    public void testDetectCharsetEncodingDeclaration() throws IOException {
+        // Replaced hard-coded file path with Amazon S3 object storage (AWS SDK v2)
+        String bucketName = System.getenv().getOrDefault("AWS_S3_TEST_BUCKET", "jsoup-test-resources");
+        InputStream inStream = S3Client.create().getObject(
+            GetObjectRequest.builder().bucket(bucketName).key("htmltests/xml-charset.xml").build());
         Document doc = Jsoup.parse(inStream, null, "http://example.com/", Parser.xmlParser());
         assertEquals("ISO-8859-1", doc.charset().name());
         assertEquals("<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?><data>äöåéü</data>",

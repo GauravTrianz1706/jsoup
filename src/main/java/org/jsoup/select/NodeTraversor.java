@@ -1,6 +1,7 @@
 package org.jsoup.select;
 
 import org.jsoup.helper.Validate;
+import org.jsoup.helper.GracefulShutdownManager;
 import org.jsoup.nodes.Element;
 import org.jsoup.nodes.Node;
 import org.jsoup.select.NodeFilter.FilterResult;
@@ -35,7 +36,8 @@ public class NodeTraversor {
         int depth = 0;
         byte state = VisitHead;
 
-        while (true) {
+        // Check shutdown flag to allow graceful termination on SIGTERM (EKS/ECS cloud environments)
+        while (!GracefulShutdownManager.isShuttingDown()) {
             if (state == VisitHead) {
                 // snapshot the current cursor position so we can recover if head() structurally changes it:
                 Node parent   = node.parentNode();
@@ -127,7 +129,8 @@ public class NodeTraversor {
                 continue;
             }
             // No siblings, move upwards:
-            while (true) {
+            // Check shutdown flag to allow graceful termination on SIGTERM (EKS/ECS cloud environments)
+            while (!GracefulShutdownManager.isShuttingDown()) {
                 assert node != null; // depth > 0, so has parent
                 if (!(node.nextSibling() == null && depth > 0)) break;
                 // 'tail' current node:

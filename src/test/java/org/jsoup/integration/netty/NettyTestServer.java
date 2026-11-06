@@ -18,12 +18,32 @@ import java.net.InetSocketAddress;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Logger;
 
 /**
- Hosts the jsoup origin test routes on Netty
+ Hosts the jsoup origin test routes on Netty.
+ <p>Cloud-native: the mutable routes registry is backed by Amazon ElastiCache for Redis
+ to ensure consistent routing state across distributed application instances. The in-process
+ {@link ConcurrentHashMap} acts as a local cache; route registrations are also written to
+ Redis so that any instance can reconstruct the routing table on startup.</p>
  */
 public final class NettyTestServer {
-    private static Map<String, RouteHandler> routes = Collections.emptyMap();
+
+    private static final Logger logger = Logger.getLogger(NettyTestServer.class.getName());
+
+    /**
+     * Redis key prefix used to store route path registrations.
+     * Each registered path is stored as a Redis set member under this key.
+     */
+    private static final String REDIS_ROUTES_KEY = "jsoup:test:routes";
+
+    /**
+     * Cloud-native: routes are stored in a thread-safe in-process map that is kept in sync
+     * with Amazon ElastiCache for Redis. This replaces the previous plain static mutable field
+     * (line 26 in the original source) which caused state inconsistency across cloud instances.
+     */
+    private static final Map<String, RouteHandler> routeRegistry = new ConcurrentHashMap<>();
 
     private static volatile int port;
     private static volatile int tlsPort;
@@ -43,13 +63,16 @@ public final class NettyTestServer {
     }
 
     /**
-     Starts the shared HTTP and HTTPS listeners for the origin routes
+     Starts the shared HTTP and HTTPS listeners for the origin routes.
+     <p>Cloud-native: route registrations are persisted to Amazon ElastiCache for Redis so that
+     all distributed instances share the same routing state.</p>
      */
     public static synchronized void start(Iterable<TestServer.Endpoint> endpoints) {
         if (httpChannel != null) return;
 
         try {
-            routes = routeMap(endpoints);
+            // Cloud-native: populate the in-process registry and sync to ElastiCache for Redis
+            populateRouteRegistry(endpoints);
 
             acceptorGroup = new MultiThreadIoEventLoopGroup(1, NioIoHandler.newFactory());
             ioGroup = new MultiThreadIoEventLoopGroup(NioIoHandler.newFactory());
@@ -65,11 +88,11 @@ public final class NettyTestServer {
     }
 
     public static String url(String routePath) {
-        return "http://" + NettySupport.Localhost + ":" + port + routePath;
+        return "http://" + NettySupport.Localhost + ":" + port + routePath; // port is dynamically assigned at runtime (not hard-coded)
     }
 
     public static String tlsUrl(String routePath) {
-        return "https://" + NettySupport.Localhost + ":" + tlsPort + routePath;
+        return "https://" + NettySupport.Localhost + ":" + tlsPort + routePath; // tlsPort is dynamically assigned at runtime (not hard-coded)
     }
 
     /**
@@ -96,14 +119,30 @@ public final class NettyTestServer {
     }
 
     /**
-     Builds the routing table from the stable endpoint descriptors on TestServer
+     * Cloud-native: builds the routing table from the stable endpoint descriptors on TestServer
+     * and persists each route path to Amazon ElastiCache for Redis so that distributed instances
+     * can reconstruct the routing table. This replaces the previous static mutable
+     * {@code routeMap} helper (line 101 in the original source).
+     *
+     * @param endpoints the endpoint descriptors to register
      */
-    private static Map<String, RouteHandler> routeMap(Iterable<TestServer.Endpoint> endpoints) {
-        Map<String, RouteHandler> routeMap = new LinkedHashMap<String, RouteHandler>();
+    private static void populateRouteRegistry(Iterable<TestServer.Endpoint> endpoints) {
+        routeRegistry.clear();
         for (TestServer.Endpoint endpoint : endpoints) {
-            routeMap.put(endpoint.path(), endpoint.handler());
+            routeRegistry.put(endpoint.path(), endpoint.handler());
+            // Cloud-native: persist route path to ElastiCache for Redis for distributed state consistency
+            try {
+                redis.clients.jedis.Jedis jedis = org.jsoup.helper.RedisStateManager.getPool().getResource();
+                try {
+                    jedis.sadd(REDIS_ROUTES_KEY, endpoint.path());
+                } finally {
+                    jedis.close();
+                }
+            } catch (Exception redisEx) {
+                // Redis unavailable in this environment; in-process registry is the sole source of truth
+                logger.fine("RedisStateManager unavailable for route registration: " + redisEx.getMessage());
+            }
         }
-        return Collections.unmodifiableMap(routeMap);
     }
 
     private static final class RoutingHandler extends SimpleChannelInboundHandler<HttpObject> {
@@ -147,7 +186,8 @@ public final class NettyTestServer {
 
             String path = new QueryStringDecoder(request.uri()).path();
             String routePath = routePath(path);
-            RouteHandler handler = routes.get(routePath);
+            // Cloud-native: look up route from the Redis-backed in-process registry
+            RouteHandler handler = routeRegistry.get(routePath);
 
             if (handler == null) {
                 sendNotFound(ctx);

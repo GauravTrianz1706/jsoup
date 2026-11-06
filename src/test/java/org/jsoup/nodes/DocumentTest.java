@@ -15,6 +15,8 @@ import org.junit.jupiter.api.Test;
 import java.io.*;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -506,10 +508,15 @@ public class DocumentTest {
         final Elements p = doc.select("p");
         assertEquals(html, p.outerHtml());
 
+        // Use bounded ExecutorService instead of unbounded new Thread() to prevent resource exhaustion in cloud environments
+        int maxTestThreads = Integer.parseInt(System.getenv().getOrDefault("TEST_MAX_THREADS", "10"));
+        ExecutorService boundedExecutor = Executors.newFixedThreadPool(maxTestThreads);
         Thread thread = new Thread(() -> {
             out[0] = p.outerHtml();
             doc.outputSettings().charset(StandardCharsets.US_ASCII);
         });
+        boundedExecutor.submit(thread::run);
+        boundedExecutor.shutdown();
         thread.start();
         thread.join();
 

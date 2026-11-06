@@ -1,6 +1,7 @@
 package org.jsoup.select;
 
 import org.jsoup.helper.Regex;
+import org.jsoup.helper.GracefulShutdownManager;
 import org.jsoup.internal.StringUtil;
 import org.jsoup.internal.QueryMode;
 import org.jsoup.helper.Validate;
@@ -119,7 +120,8 @@ public class QueryParser implements AutoCloseable {
         if (leading != 0) consumeStructuralStep();
         List<Evaluator> compounds = Collections.singletonList(parseSimpleSequence());
         List<Character> combinators = Collections.emptyList();
-        while (true) {
+        // Check shutdown flag to allow graceful termination on SIGTERM (EKS/ECS cloud environments)
+        while (!GracefulShutdownManager.isShuttingDown()) {
             char combinator = tq.consumeWhitespace() ? ' ' : 0;
             if (tq.matchesAny(Combinators)) combinator = tq.consume();
             else if (tq.matchesAny(SequenceEnders) || tq.isEmpty()) break;

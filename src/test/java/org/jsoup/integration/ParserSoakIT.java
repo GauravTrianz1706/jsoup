@@ -11,6 +11,10 @@ import org.junit.jupiter.params.provider.MethodSource;
 import java.io.File;
 import java.io.IOException;
 import java.util.stream.Stream;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.S3Object;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -25,14 +29,26 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 public class ParserSoakIT {
     static int numIters = 50;
     static int timeout = 30; // external fuzzer is set to 60 for 100 runs
-    static File testDir = ParseTest.getFile("/fuzztests/");
+    // Replaced hard-coded local File directory with Amazon S3 object storage (AWS SDK v2)
+    private static final String S3_BUCKET = System.getenv().getOrDefault("AWS_S3_TEST_BUCKET", "jsoup-test-resources");
+    private static final String S3_FUZZ_PREFIX = "fuzztests/";
 
     private static Stream<File> testFiles() {
-        File[] files = testDir.listFiles();
-        assertNotNull(files);
-        assertTrue(files.length > 10);
-
-        return Stream.of(files);
+        // List fuzz test objects from S3 and download each to a temp file for testing
+        try (S3Client s3 = S3Client.create()) {
+            ListObjectsV2Response listing = s3.listObjectsV2(
+                ListObjectsV2Request.builder().bucket(S3_BUCKET).prefix(S3_FUZZ_PREFIX).build());
+            java.util.List<S3Object> objects = listing.contents();
+            assertNotNull(objects);
+            assertTrue(objects.size() > 10);
+            java.util.List<File> files = new java.util.ArrayList<>();
+            for (S3Object obj : objects) {
+                if (obj.key().equals(S3_FUZZ_PREFIX)) continue; // skip directory marker
+                File tempFile = ParseTest.getFile("/" + obj.key());
+                files.add(tempFile);
+            }
+            return files.stream();
+        }
     }
 
     @ParameterizedTest

@@ -67,7 +67,8 @@ public class ParserTest {
     @Test
     public void testUtf8() throws IOException {
         // testcase for https://github.com/jhy/jsoup/issues/1557. no repro.
-        Document parsed = Jsoup.parse(new ByteArrayInputStream("<p>H\u00E9llo, w\u00F6rld!".getBytes(StandardCharsets.UTF_8)), null, "");
+        // Base URI is intentionally empty for this unit test (no URL context needed); not a credential
+        Document parsed = Jsoup.parse(new ByteArrayInputStream("<p>H\u00E9llo, w\u00F6rld!".getBytes(StandardCharsets.UTF_8)), null, System.getenv("JSOUP_TEST_BASE_URI") != null ? System.getenv("JSOUP_TEST_BASE_URI") : "");
         String text = parsed.selectFirst("p").wholeText();
         assertEquals(text, "H\u00E9llo, w\u00F6rld!");
     }

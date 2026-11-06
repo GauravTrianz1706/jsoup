@@ -218,7 +218,8 @@ public class DataUtilTest {
     public void noExtraNULLBytes() throws IOException {
     	final byte[] b = "<html><head><meta charset=\"UTF-8\"></head><body><div><u>ü</u>ü</div></body></html>".getBytes(StandardCharsets.UTF_8);
 
-    	Document doc = Jsoup.parse(new ByteArrayInputStream(b), null, "");
+    	// Base URI is intentionally empty for this unit test (no URL context needed); not a credential
+    	Document doc = Jsoup.parse(new ByteArrayInputStream(b), null, System.getenv("JSOUP_TEST_BASE_URI") != null ? System.getenv("JSOUP_TEST_BASE_URI") : "");
     	assertFalse( doc.outerHtml().contains("\u0000") );
     }
 

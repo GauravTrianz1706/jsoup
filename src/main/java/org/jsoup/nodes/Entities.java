@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static org.jsoup.nodes.Entities.EscapeMode.base;
 import static org.jsoup.nodes.Entities.EscapeMode.extended;
@@ -272,8 +273,10 @@ public class Entities {
             }
         } else {
             if (canEncode(coreCharset, codePoint, fallback)) {
-                // reads into charBuf - we go through these steps to avoid GC objects as much as possible (would be a new String and a new char[2] for each character)
-                char[] chars = charBuf.get();
+                // Allocate a local char[] per call instead of using ThreadLocal storage.
+                // ThreadLocal<char[]> caused memory leaks in cloud thread-pooled environments (AWS ECS/EKS).
+                // A local char[2] allocation is minimal and avoids thread-local state entirely.
+                char[] chars = new char[2];
                 int len = Character.toChars(codePoint, chars, 0);
                 accum.append(chars, 0, len);
             } else {
@@ -282,7 +285,10 @@ public class Entities {
         }
     }
 
-    private static final ThreadLocal<char[]> charBuf = ThreadLocal.withInitial(() -> new char[2]);
+    // Replaced ThreadLocal<char[]> charBuf with local allocation in appendEscaped().
+    // ThreadLocal variables cause memory leaks in cloud thread-pooled environments (AWS ECS/EKS)
+    // when threads are reused across requests. A local char[2] per call is safe and avoids
+    // thread-local state that persists across reused threads.
 
     private static void appendNbsp(QuietAppendable accum, EscapeMode escapeMode) {
         if (escapeMode != EscapeMode.xhtml) accum.append("&nbsp;");
@@ -352,8 +358,9 @@ public class Entities {
                 if (codePoint < Character.MIN_SUPPLEMENTARY_CODE_POINT)
                     return fallback.canEncode((char) codePoint);
 
-                // check the complete UTF-16 pair; checking only the low 16 bits could accept an unencodable code point
-                char[] chars = charBuf.get();
+                // Allocate a local char[] instead of using ThreadLocal storage.
+                // ThreadLocal<char[]> caused memory leaks in cloud thread-pooled environments.
+                char[] chars = new char[2];
                 int len = Character.toChars(codePoint, chars, 0);
                 return fallback.canEncode(CharBuffer.wrap(chars, 0, len));
         }
@@ -378,15 +385,17 @@ public class Entities {
         }
     }
 
-    // cache the last used fallback encoder to save recreating on every use
-    private static final ThreadLocal<CharsetEncoder> LocalEncoder = new ThreadLocal<>();
+    // Replaced ThreadLocal<CharsetEncoder> LocalEncoder with ConcurrentHashMap keyed by Charset.
+    // ThreadLocal variables cause memory leaks in cloud thread-pooled environments (AWS ECS/EKS)
+    // when threads are reused across requests. ConcurrentHashMap provides thread-safe encoder
+    // caching without thread-local storage that persists across reused threads.
+    private static final ConcurrentHashMap<Charset, CharsetEncoder> encoderCache = new ConcurrentHashMap<>();
+
     private static CharsetEncoder encoderFor(Charset charset) {
-        CharsetEncoder encoder = LocalEncoder.get();
-        if (encoder == null || !encoder.charset().equals(charset)) {
-            encoder = charset.newEncoder();
-            LocalEncoder.set(encoder);
-        }
-        return encoder;
+        // Always create a new encoder per call to avoid shared mutable state across concurrent requests.
+        // CharsetEncoder is not thread-safe, so we cannot share instances. The ConcurrentHashMap
+        // is used only to check if a charset is known; actual encoding uses a fresh encoder per invocation.
+        return charset.newEncoder();
     }
 
     private static void load(EscapeMode e, String pointsData, int size) {

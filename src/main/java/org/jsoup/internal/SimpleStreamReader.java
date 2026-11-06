@@ -1,6 +1,7 @@
 package org.jsoup.internal;
 
 import org.jsoup.helper.Validate;
+import org.jsoup.helper.GracefulShutdownManager;
 import org.jspecify.annotations.Nullable;
 
 import java.io.IOException;
@@ -40,7 +41,8 @@ public class SimpleStreamReader extends Reader {
         if (charBuf.position() != 0) charBuf = charBuf.slice();
 
         boolean readFully = false;
-        while (true) {
+        // Check shutdown flag to allow graceful termination on SIGTERM (EKS/ECS cloud environments)
+        while (!GracefulShutdownManager.isShuttingDown()) {
             CoderResult result = decoder.decode(byteBuf, charBuf, readFully);
             if (result.isUnderflow()) {
                 if (readFully || !charBuf.hasRemaining() || (charBuf.position() > 0) && !hasAvailableBytes())

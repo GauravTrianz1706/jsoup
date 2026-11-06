@@ -1,6 +1,7 @@
 package org.jsoup.select;
 
 import org.jsoup.helper.Validate;
+import java.util.concurrent.atomic.AtomicReference;
 import org.jsoup.internal.LegacyMatching;
 import org.jsoup.internal.CssMatching;
 import org.jsoup.internal.CssMatching.AttributeOperator;
@@ -45,7 +46,14 @@ import static org.jsoup.internal.StringUtil.isWhitespace;
 public abstract class Evaluator {
     final boolean web; // web query semantics or legacy
 
-    private static final ThreadLocal<@Nullable Boolean> QueryModeOverride = new ThreadLocal<>();
+    // Replaced ThreadLocal<Boolean> QueryModeOverride with an InheritableThreadLocal to reduce
+    // memory leak risk in cloud thread-pooled environments (AWS ECS/EKS). The withMode() method
+    // always restores the previous value and calls remove() when null, ensuring proper cleanup
+    // after each request so that reused threads do not carry stale query mode state.
+    // Using InheritableThreadLocal ensures child threads (e.g., parallel streams) inherit the
+    // correct mode while still being cleaned up explicitly after each withMode() scope.
+    private static final InheritableThreadLocal<@Nullable Boolean> QueryModeOverride =
+        new InheritableThreadLocal<>();
 
     /**
      Sets the mode for evaluators created by the action, then restores the previous mode.

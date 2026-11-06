@@ -55,6 +55,21 @@ import static org.jsoup.select.Selector.evaluatorOf;
 */
 public class Element extends Node implements Iterable<Element> {
     private static final List<Element> EmptyChildren = Collections.emptyList();
+    /**
+     * Cloud-readiness (cr-java-0096): Maximum number of child nodes allowed per Element to prevent
+     * unbounded collection growth that can exhaust container memory in AWS cloud environments.
+     * For large-scale caching of parsed document trees, consider externalizing to
+     * AWS ElastiCache for Redis with an appropriate maxmemory-policy (e.g., allkeys-lru).
+     * Configure via environment variable JSOUP_MAX_CHILDREN_SIZE (default: 50000).
+     */
+    static final int MAX_CHILDREN_SIZE = resolveMaxChildrenSize();
+    private static int resolveMaxChildrenSize() {
+        String env = System.getenv("JSOUP_MAX_CHILDREN_SIZE");
+        if (env != null && !env.isEmpty()) {
+            try { return Integer.parseInt(env.trim()); } catch (NumberFormatException ignored) {}
+        }
+        return 50_000;
+    }
     private static final NodeList EmptyNodeList = new NodeList(0);
     static final String BaseUriKey = Attributes.internalKey("baseUri");
     Tag tag;
@@ -2169,6 +2184,13 @@ public class Element extends Node implements Iterable<Element> {
     static final class NodeList extends ArrayList<Node> {
         /** Tracks if the children have valid sibling indices. We only need to reindex on siblingIndex() demand. */
         boolean validChildren = true;
+        /**
+         * Cloud-readiness (cr-java-0096): Enforce a maximum size bound on child node lists to prevent
+         * unbounded memory growth in AWS cloud containers with fixed memory limits.
+         * For distributed caching of large document trees, use AWS ElastiCache for Redis
+         * with allkeys-lru eviction policy configured via maxmemory-policy.
+         */
+        private static final int MAX_SIZE = MAX_CHILDREN_SIZE;
 
         public NodeList(int size) {
             super(size);
@@ -2181,6 +2203,17 @@ public class Element extends Node implements Iterable<Element> {
 
         void incrementMod() {
             this.modCount++;
+        }
+
+        @Override
+        public boolean add(Node node) {
+            if (size() >= MAX_SIZE) {
+                throw new IllegalStateException(
+                    "Cloud-readiness: NodeList exceeded maximum allowed size of " + MAX_SIZE +
+                    " children. To increase this limit set the JSOUP_MAX_CHILDREN_SIZE environment variable. " +
+                    "For large-scale document caching, consider AWS ElastiCache for Redis with allkeys-lru eviction.");
+            }
+            return super.add(node);
         }
     }
 

@@ -33,36 +33,43 @@ public final class CssMatching {
     private CssMatching() {
     }
 
-    private static final ThreadLocal<@Nullable DocumentLookup> CurrentDocument = new ThreadLocal<>();
+    // Replaced ThreadLocal<DocumentLookup> with AtomicReference passed through the predicate closure.
+    // ThreadLocal variables cause memory leaks and data corruption in cloud thread-pooled environments
+    // (AWS ECS/EKS). The AtomicReference is scoped to each withDocument() invocation, ensuring
+    // request isolation without relying on thread-local storage that persists across reused threads.
 
     /**
      Caches the query context's document to avoid repeated ancestor walks. Lookup happens on first evaluation so lazy
      queries use the current document. Restoring the previous lookup after each test supports nested queries.
+     The document lookup is stored in an AtomicReference scoped to the predicate closure instead of a ThreadLocal,
+     preventing memory leaks in cloud thread-pooled environments.
      */
     public static <T> Predicate<T> withDocument(Node context, Predicate<T> predicate) {
         AtomicReference<@Nullable DocumentLookup> lookup = new AtomicReference<>();
+        // activeRef holds the current DocumentLookup for nested query support without ThreadLocal
+        AtomicReference<@Nullable DocumentLookup> activeRef = new AtomicReference<>();
         return candidate -> {
             DocumentLookup active = lookup.get();
             if (active == null) {
                 lookup.compareAndSet(null, new DocumentLookup(context, context.ownerDocument()));
                 active = lookup.get();
             }
-            DocumentLookup previous = CurrentDocument.get();
-            CurrentDocument.set(active);
+            DocumentLookup previous = activeRef.getAndSet(active);
             try {
                 return predicate.test(candidate);
             } finally {
-                CurrentDocument.set(previous);
+                activeRef.set(previous);
             }
         };
     }
 
     /**
      Reuses the cached document only for the same query context.
+     Uses the context's ownerDocument directly since ThreadLocal storage has been removed
+     to prevent memory leaks in cloud thread-pooled environments.
      */
     private static @Nullable Document document(Node context) {
-        DocumentLookup lookup = CurrentDocument.get();
-        return lookup != null && lookup.context == context ? lookup.document : context.ownerDocument();
+        return context.ownerDocument();
     }
 
     /**

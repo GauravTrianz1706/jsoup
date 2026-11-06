@@ -3,6 +3,7 @@ package org.jsoup.parser;
 import org.jsoup.internal.Normalizer;
 import org.jsoup.internal.StringUtil;
 import org.jsoup.nodes.DocumentType;
+import org.jsoup.helper.GracefulShutdownManager;
 
 import static org.jsoup.internal.Normalizer.equalsIgnoreAsciiCase;
 import static org.jsoup.nodes.Document.OutputSettings.Syntax.xml;
@@ -1904,7 +1905,8 @@ enum TokeniserState {
         byte context = None;
         TokenData subset = t.doctypePending.internalSubset;
 
-        while (true) {
+        // Check shutdown flag to allow graceful termination on SIGTERM (EKS/ECS cloud environments)
+        while (!GracefulShutdownManager.isShuttingDown()) {
             char c = r.consume();
             switch (c) {
                 case '\'':

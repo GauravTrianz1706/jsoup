@@ -631,6 +631,52 @@
       <optional>true</optional>
       <scope>compile</scope>
     </dependency>
+
+    <!-- AWS SDK v2 - replaces hard-coded file path dependencies and environment URLs with cloud-native services -->
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>secretsmanager</artifactId>
+      <version>2.25.0</version>
+      <scope>test</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>s3</artifactId>
+      <version>2.25.0</version>
+      <scope>test</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>auth</artifactId>
+      <version>2.25.0</version>
+      <scope>test</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>regions</artifactId>
+      <version>2.25.0</version>
+      <scope>test</scope>
+    </dependency>
+
+    <!-- AWS SDK v2 SSM - for retrieving environment URLs from AWS Systems Manager Parameter Store -->
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>ssm</artifactId>
+      <version>2.25.0</version>
+      <scope>test</scope>
+    </dependency>
+
+    <!-- Jedis - Redis client for Amazon ElastiCache for Redis (replaces static mutable variables) -->
+    <dependency>
+      <groupId>redis.clients</groupId>
+      <artifactId>jedis</artifactId>
+      <version>5.1.0</version>
+      <scope>compile</scope>
+    </dependency>
+
   </dependencies>
 
   <dependencyManagement>

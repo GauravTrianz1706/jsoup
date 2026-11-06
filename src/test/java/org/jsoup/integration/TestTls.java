@@ -13,12 +13,22 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.security.GeneralSecurityException;
 import java.security.KeyStore;
+import java.util.Objects;
 
 /**
  Shares the localhost test certificate setup across the integration harnesses
  */
 public final class TestTls {
-    private static final String KeystorePassword = "hunter2";
+    /**
+     * Keystore password is loaded from the environment variable KEYSTORE_PASSWORD.
+     * In AWS environments, set this via AWS Systems Manager Parameter Store or
+     * AWS Secrets Manager and inject it as an environment variable at runtime.
+     * Example: export KEYSTORE_PASSWORD=<value-from-aws-secrets-manager>
+     */
+    private static final String KeystorePassword = Objects.requireNonNull(
+        System.getenv("KEYSTORE_PASSWORD"),
+        "Environment variable KEYSTORE_PASSWORD must be set. " +
+        "Retrieve the value from AWS Secrets Manager or AWS SSM Parameter Store and set it before running tests.");
     private static volatile boolean defaultTrustConfigured;
 
     private TestTls() {

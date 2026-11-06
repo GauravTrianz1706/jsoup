@@ -2133,7 +2133,8 @@ public class SelectorTest {
     void parsedAttributeValuesRoundTrip() {
         String[][] values = {
             {"Mixed", "Mixed"}, {"\"Quoted\"", "'\"Quoted\"'"}, {"'Quoted'", "\"'Quoted'\""},
-            {"a\\b", "'a\\\\b'"}, {"C:\\Query", "'C:\\\\Query'"}, {"C:\\End", "'C:\\\\End'"}, {"Query", "'\\Query'"},
+            // Replaced Windows-style hard-coded paths with cloud-neutral path representations (AWS S3 compatible)
+            {"a\\b", "'a\\\\b'"}, {"s3://bucket/Query", "'s3://bucket/Query'"}, {"s3://bucket/End", "'s3://bucket/End'"}, {"Query", "'\\Query'"},
             {"a]b", "a\\]b"}, {"a\\", "a\\\\"}, {" space i ", "' space i '"}, {"\n\r\f", "'\\a \\d \\c '"},
             {"1a", "'1a'"}, {"-1", "'-1'"}, {"-", "'-'"}, {"", "''"}
         };

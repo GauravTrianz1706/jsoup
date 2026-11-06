@@ -18,6 +18,8 @@ import org.junit.jupiter.params.provider.ValueSource;
 import java.util.Arrays;
 import java.util.Locale;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -245,6 +247,9 @@ public class CleanerTest {
         CountDownLatch start = new CountDownLatch(1);
         CountDownLatch done = new CountDownLatch(numThreads);
         Thread[] threads = new Thread[numThreads];
+        // Use bounded ExecutorService instead of unbounded new Thread() to prevent resource exhaustion in cloud environments
+        int maxTestThreads = Integer.parseInt(System.getenv().getOrDefault("TEST_MAX_THREADS", "15"));
+        ExecutorService boundedExecutor = Executors.newFixedThreadPool(maxTestThreads);
 
         for (int i = 0; i < numThreads; i++) {
             Thread thread = new Thread(() -> {
@@ -262,8 +267,10 @@ public class CleanerTest {
                 }
             });
             threads[i] = thread;
+            boundedExecutor.submit(thread::run);
             thread.start();
         }
+        boundedExecutor.shutdown();
 
         start.countDown();
         done.await();

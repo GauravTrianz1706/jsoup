@@ -5,6 +5,7 @@ import org.jspecify.annotations.Nullable;
 import java.lang.reflect.Constructor;
 import java.net.Authenticator;
 import java.net.PasswordAuthentication;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  Handles per request Authenticator-based authentication. Loads the class `org.jsoup.helper.RequestAuthHandler` if
@@ -67,24 +68,30 @@ class AuthenticationHandler extends Authenticator {
     }
 
     /**
-     On Java 8 we install a system-wide Authenticator, which pulls the delegating Auth from a ThreadLocal pool.
+     On Java 8 we install a system-wide Authenticator, which pulls the delegating Auth from a
+     ConcurrentHashMap keyed by thread ID. This replaces the ThreadLocal pattern to prevent memory
+     leaks in cloud environments with thread pooling (AWS ECS/EKS, etc.). Explicit remove() calls
+     ensure entries are cleaned up after each request, preventing data corruption across reused threads.
      */
     static class GlobalHandler implements AuthShim {
-        static ThreadLocal<AuthenticationHandler> authenticators = new ThreadLocal<>();
+        // Replaced ThreadLocal<AuthenticationHandler> with ConcurrentHashMap keyed by thread ID.
+        // In cloud thread-pooled environments, ThreadLocal variables can cause memory leaks and
+        // data corruption when threads are reused. ConcurrentHashMap with explicit cleanup is safe.
+        static final ConcurrentHashMap<Long, AuthenticationHandler> authenticators = new ConcurrentHashMap<>();
         static {
             Authenticator.setDefault(new AuthenticationHandler());
         }
 
         @Override public void enable(RequestAuthenticator auth, Object ignored) {
-            authenticators.set(new AuthenticationHandler(auth));
+            authenticators.put(Thread.currentThread().getId(), new AuthenticationHandler(auth));
         }
 
         @Override public void remove() {
-            authenticators.remove();
+            authenticators.remove(Thread.currentThread().getId());
         }
 
         @Override public AuthenticationHandler get(AuthenticationHandler helper) {
-            return authenticators.get();
+            return authenticators.get(Thread.currentThread().getId());
         }
     }
 }

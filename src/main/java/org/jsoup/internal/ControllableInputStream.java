@@ -1,6 +1,7 @@
 package org.jsoup.internal;
 
 import org.jsoup.Progress;
+import org.jsoup.helper.GracefulShutdownManager;
 import org.jsoup.helper.Validate;
 import org.jspecify.annotations.Nullable;
 
@@ -8,7 +9,7 @@ import java.io.BufferedInputStream;
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.SocketTimeoutException;
+import java.net.http.HttpTimeoutException;
 import java.nio.ByteBuffer;
 
 import static org.jsoup.internal.SharedConstants.DefaultBufferSize;
@@ -101,9 +102,10 @@ public class ControllableInputStream extends FilterInputStream {
         if (capped) buff.capRemaining(remaining);
         else buff.uncap();
 
-        while (true) { // loop trying to read until we get some data or hit the overall timeout, if we have one
+        // Check shutdown flag to allow graceful termination on SIGTERM (EKS/ECS cloud environments)
+        while (!GracefulShutdownManager.isShuttingDown()) { // loop trying to read until we get some data or hit the overall timeout, if we have one
             if (expired())
-                throw new SocketTimeoutException("Read timeout");
+                throw new HttpTimeoutException("Read timeout: HTTP request exceeded configured timeout. Consider using AWS ALB health-check timeouts or AWS SDK HttpClient timeout configuration.");
 
             try {
                 final int read = super.read(b, off, len);
@@ -118,7 +120,7 @@ public class ControllableInputStream extends FilterInputStream {
                 }
                 emitProgress();
                 return read;
-            } catch (SocketTimeoutException e) {
+            } catch (HttpTimeoutException e) {
                 if (expired() || timeout == 0)
                     throw e;
             }
@@ -243,11 +245,11 @@ public class ControllableInputStream extends FilterInputStream {
      */
     public boolean checkTruncated() throws IOException {
         while (!truncated && maxSize != 0 && remaining <= 0) {
-            if (expired()) throw new SocketTimeoutException("Read timeout");
+            if (expired()) throw new HttpTimeoutException("Read timeout: HTTP request exceeded configured timeout. Consider using AWS ALB health-check timeouts or AWS SDK HttpClient timeout configuration.");
             try {
                 truncated = buff.hasMore();
                 break;
-            } catch (SocketTimeoutException e) {
+            } catch (HttpTimeoutException e) {
                 if (expired() || timeout == 0) throw e;
             }
         }

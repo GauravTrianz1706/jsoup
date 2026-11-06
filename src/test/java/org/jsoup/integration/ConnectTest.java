@@ -1,6 +1,7 @@
 package org.jsoup.integration;
 
 import org.jsoup.Connection;
+import org.jsoup.helper.AwsSecretsUtil;
 import org.jsoup.HttpStatusException;
 import org.jsoup.Jsoup;
 import org.jsoup.Connection.Method;
@@ -21,6 +22,7 @@ import org.jsoup.nodes.XmlDeclaration;
 import org.jsoup.parser.HtmlTreeBuilder;
 import org.jsoup.parser.Parser;
 import org.jsoup.parser.StreamParser;
+import org.jsoup.integration.AwsS3TestHelper;
 import org.jsoup.parser.XmlTreeBuilder;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -31,8 +33,6 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.ByteArrayInputStream;
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
 import java.io.InputStream;
 import java.net.Authenticator;
 import java.net.HttpCookie;
@@ -43,6 +43,7 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -943,26 +944,24 @@ public class ConnectTest {
         FormElement form = forms.get(0);
         Connection post = form.submit();
 
-        File uploadFile = ParseTest.getFile("/htmltests/large.html");
-        FileInputStream stream = new FileInputStream(uploadFile);
+        // Replaced hard-coded file path with Amazon S3 object storage (AWS SDK v2)
+        try (InputStream stream = AwsS3TestHelper.getObjectInputStream(
+                System.getenv().getOrDefault("AWS_S3_TEST_BUCKET", "jsoup-test-resources"),
+                "htmltests/large.html")) {
 
-        Connection.KeyVal fileData = post.data("_file");
-        assertNotNull(fileData);
-        fileData.value("check.html");
-        fileData.inputStream(stream);
+            Connection.KeyVal fileData = post.data("_file");
+            assertNotNull(fileData);
+            fileData.value("check.html");
+            fileData.inputStream(stream);
 
-        Connection.Response res;
-        try {
-            res = post.execute();
-        } finally {
-            stream.close();
+            Connection.Response res = post.execute();
+
+            Document doc = res.parse();
+            assertEquals(ihVal("Method", doc), "POST"); // from form action
+            assertEquals(ihVal("Part _file Filename", doc), "check.html");
+            assertEquals(ihVal("Part _file Name", doc), "_file");
+            assertEquals(ihVal("_function", doc), "tidy");
         }
-
-        Document doc = res.parse();
-        assertEquals(ihVal("Method", doc), "POST"); // from form action
-        assertEquals(ihVal("Part _file Filename", doc), "check.html");
-        assertEquals(ihVal("Part _file Name", doc), "_file");
-        assertEquals(ihVal("_function", doc), "tidy");
     }
 
     @Test
@@ -1160,7 +1159,8 @@ public class ConnectTest {
         assertNotNull(form);
         String username = "admin";
         form.expectFirst("[name=username]").val(username);
-        String password = "Netscape engineers are weenies!";
+        // Retrieve test password from AWS Secrets Manager; falls back to env var JSOUP_TEST_PASSWORD
+        String password = AwsSecretsUtil.getSecret("jsoup/test/formLoginPassword", "JSOUP_TEST_PASSWORD", "Netscape engineers are weenies!");
         form.expectFirst("[name=password]").val(password);
 
         Connection submit = form.submit();

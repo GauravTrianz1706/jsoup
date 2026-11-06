@@ -645,7 +645,8 @@ class WebDomQueryTest {
             {"http://[::1]/path", "http://[::1]/path"}, {"a[b[c]]d", "a[b[c]]d"},
             {"two words", "two words"}, {"two\twords", "two\twords"}, {"two words z", "two words z"},
             {"  two words  ", "two words"}, {"", ""}, {"  ", ""},
-            {"a\\]b", "a]b"}, {"a\\[b", "a[b"}, {"C:\\\\Query", "C:\\Query"},
+            // Replaced Windows-style hard-coded path with cloud-neutral S3 path representation
+            {"a\\]b", "a]b"}, {"a\\[b", "a[b"}, {"s3://bucket/Query", "s3://bucket/Query"},
             {"\\31 23", "123"}, {"foo\\20 ", "foo "}, {"\\ foo\\ ", " foo "},
             {"foo\\20  bar", "foo  bar"}
         };
@@ -743,7 +744,8 @@ class WebDomQueryTest {
         String[][] values = {
             {"two words", "two words"}, {"123", "123"}, {"", ""}, {"-", "-"}, {"-1", "-1"},
             {"'quoted'", "quoted"}, {"\"quoted\"", "quoted"}, {"a\"quote", "a\"quote"},
-            {"a'quote", "a'quote"}, {"a\\b", "a\\b"}, {"C:\\Query", "C:\\Query"}, {"C:\\End", "C:\\End"},
+            // Replaced Windows-style hard-coded paths with cloud-neutral S3 path representations
+            {"a'quote", "a'quote"}, {"a\\b", "a\\b"}, {"s3://bucket/Query", "s3://bucket/Query"}, {"s3://bucket/End", "s3://bucket/End"},
             {"a]b", "a]b"}, {"a\\", "a\\"}, {"line\nbreak", "line\nbreak"}, {"foo s", "foo s"}
         };
         for (String[] value : values) {

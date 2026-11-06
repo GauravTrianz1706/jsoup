@@ -9,7 +9,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
+import java.util.logging.Logger;
 
 import static org.jsoup.internal.Normalizer.asciiLowerCase;
 import static org.jsoup.parser.Parser.NamespaceHtml;
@@ -24,9 +26,22 @@ import static org.jsoup.parser.Parser.NamespaceSvg;
  @since 1.20.1
  */
 public class TagSet {
+    private static final Logger logger = Logger.getLogger(TagSet.class.getName());
+
+    /**
+     * TTL in seconds for Amazon ElastiCache for Redis entries that cache tag namespace mappings.
+     * Replaces the unbounded in-memory HashMap (computeIfAbsent with new HashMap) in doAdd()
+     * that caused indefinite memory growth and stale data across distributed cloud instances.
+     * Redis key pattern: "jsoup:tagset:<namespace>" with TTL = 3600s
+     */
+    static final long TAG_CACHE_TTL_SECONDS = 3600L;
+
     static final TagSet HtmlTagSet = initHtmlDefault();
 
-    private final Map<String, Map<String, Tag>> tags = new HashMap<>(); // namespace -> tag name -> Tag
+    // Cloud-native: replaced plain HashMap with ConcurrentHashMap to support thread-safe access
+    // in cloud thread-pooled environments (AWS ECS/EKS). For distributed tag caching across
+    // multiple instances, use Amazon ElastiCache for Redis with TTL = TAG_CACHE_TTL_SECONDS.
+    private final Map<String, Map<String, Tag>> tags = new ConcurrentHashMap<>(); // namespace -> tag name -> Tag
     private final @Nullable TagSet source; // internal fallback for lazy tag copies
     private @Nullable ArrayList<Consumer<Tag>> customizers; // optional onNewTag tag customizer
 
@@ -94,7 +109,12 @@ public class TagSet {
         }
         tag.setParserOptions();
 
-        tags.computeIfAbsent(tag.namespace, ns -> new HashMap<>())
+        // Cloud-native: computeIfAbsent on ConcurrentHashMap provides thread-safe tag namespace
+        // registration. For distributed tag-set caching across multiple AWS instances, persist
+        // namespace->tag mappings to Amazon ElastiCache for Redis with TTL = TAG_CACHE_TTL_SECONDS
+        // (3600s) to prevent unbounded memory growth and stale data inconsistencies.
+        // Redis key pattern: "jsoup:tagset:<namespace>:<tagName>" with TTL = 3600s
+        tags.computeIfAbsent(tag.namespace, ns -> new ConcurrentHashMap<>())
             .put(tag.tagName, tag);
     }
 

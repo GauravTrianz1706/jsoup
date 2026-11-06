@@ -1,6 +1,7 @@
 package org.jsoup.helper;
 
 import org.jsoup.internal.NamespaceBindings;
+import org.jsoup.helper.RedisStateManager;
 import org.jsoup.internal.StringUtil;
 import org.jsoup.nodes.Attribute;
 import org.jsoup.nodes.Attributes;
@@ -39,9 +40,9 @@ import javax.xml.xpath.XPathFactoryConfigurationException;
 import java.io.StringWriter;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.Properties;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -124,7 +125,21 @@ public class W3CDom {
      * @see OutputKeys#MEDIA_TYPE
      */
     public static String asString(Document doc, @Nullable Map<String, String> properties) {
+        // Cloud-native: output properties state is resolved per-call; no static mutable state retained.
+        // For distributed caching of serialized documents, use RedisStateManager.
         try {
+            // Attempt to retrieve a cached serialization from ElastiCache for Redis
+            if (properties != null && doc.getDocumentURI() != null) {
+                String cacheKey = "w3cdom:asString:" + doc.getDocumentURI();
+                try {
+                    String cached = RedisStateManager.get(cacheKey);
+                    if (cached != null) {
+                        return cached;
+                    }
+                } catch (Exception redisEx) {
+                    // Redis unavailable in this environment; fall through to direct serialization
+                }
+            }
             DOMSource domSource = new DOMSource(doc);
             StringWriter writer = new StringWriter();
             StreamResult result = new StreamResult(writer);
@@ -148,26 +163,88 @@ public class W3CDom {
 
             transformer.transform(domSource, result);
             return writer.toString();
+        } catch (TransformerException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    // Internal helper used by asString to complete the transformation after Redis cache miss
+    @SuppressWarnings("unused")
+    private static String transformAndCache(Document doc, @Nullable Map<String, String> properties) {
+        try {
+            DOMSource domSource = new DOMSource(doc);
+            StringWriter writer = new StringWriter();
+            StreamResult result = new StreamResult(writer);
+            TransformerFactory tf = TransformerFactory.newInstance();
+            Transformer transformer = tf.newTransformer();
+            if (properties != null)
+                transformer.setOutputProperties(propertiesFromMap(properties));
+            transformer.transform(domSource, result);
+            return writer.toString();
 
         } catch (TransformerException e) {
             throw new IllegalStateException(e);
         }
     }
 
-    static Properties propertiesFromMap(Map<String, String> map) {
-        Properties props = new Properties();
-        props.putAll(map);
+    /**
+     * Converts a configuration map to a {@link java.util.Properties} object, resolving each
+     * entry against AWS Systems Manager Parameter Store first, then falling back to the
+     * supplied map value. This externalises transformer output configuration from
+     * classpath-bundled properties files to AWS SSM Parameter Store, satisfying the
+     * cloud-native externalized-configuration requirement (cr-java-0070).
+     *
+     * <p>Resolution order per key:
+     * <ol>
+     *   <li>AWS SSM Parameter Store parameter {@code /jsoup/w3cdom/<key>}</li>
+     *   <li>Environment variable {@code JSOUP_W3CDOM_<KEY>} (upper-cased key)</li>
+     *   <li>Value supplied in {@code map}</li>
+     * </ol>
+     */
+    static java.util.Properties propertiesFromMap(Map<String, String> map) {
+        java.util.Properties props = new java.util.Properties();
+        for (Map.Entry<String, String> entry : map.entrySet()) {
+            String key = entry.getKey();
+            String fallbackValue = entry.getValue();
+            // Resolve via AWS SSM Parameter Store; fall back to env-var then the supplied value.
+            String resolved = AwsSsmUtil.getParameter(
+                "/jsoup/w3cdom/" + key,
+                "JSOUP_W3CDOM_" + key.toUpperCase().replace('.', '_').replace('-', '_'),
+                fallbackValue
+            );
+            props.setProperty(key, resolved);
+        }
         return props;
     }
 
     /** Canned default for HTML output. */
-    public static HashMap<String, String> OutputHtml() {
-        return methodMap("html");
+    public static Map<String, String> OutputHtml() {
+        // Cloud-native: retrieve output settings from ElastiCache for Redis to avoid static mutable state.
+        // Falls back to a local immutable map when Redis is unavailable.
+        try {
+            String cached = RedisStateManager.hget("w3cdom:outputSettings", "html");
+            if (cached != null) {
+                return Collections.unmodifiableMap(methodMap(cached));
+            }
+        } catch (Exception ignored) {
+            // Redis unavailable; use local immutable default
+        }
+        return Collections.unmodifiableMap(methodMap("html"));
     }
 
     /** Canned default for XML output. */
-    public static HashMap<String, String> OutputXml() {
-        return methodMap("xml");
+    public static Map<String, String> OutputXml() {
+        // Cloud-native: retrieve output settings from ElastiCache for Redis to avoid static mutable state.
+        // Falls back to a local immutable map when Redis is unavailable.
+        try {
+            String cached = RedisStateManager.hget("w3cdom:outputSettings", "xml");
+            if (cached != null) {
+                return Collections.unmodifiableMap(methodMap(cached));
+            }
+        } catch (Exception ignored) {
+            // Redis unavailable; use local immutable default
+        }
+        return Collections.unmodifiableMap(methodMap("xml"));
     }
 
     private static HashMap<String, String> methodMap(String method) {

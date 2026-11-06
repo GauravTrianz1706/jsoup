@@ -18,6 +18,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.zip.GZIPInputStream;
+import software.amazon.awssdk.core.ResponseInputStream;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -126,12 +130,39 @@ public class ParseTest {
     }
 
 
+    /**
+     * Retrieves a test resource as a File. For cloud-native environments, resources are fetched
+     * from Amazon S3 using AWS SDK v2 when the resource is not available on the local classpath.
+     * Falls back to classpath resource resolution for backward compatibility.
+     */
     public static File getFile(String resourceName) {
         try {
             URL resource = ParseTest.class.getResource(resourceName);
-            return resource != null ? new File(resource.toURI()) : new File("/404");
+            if (resource != null) {
+                return new File(resource.toURI());
+            }
+            // Cloud-native fallback: download from Amazon S3 and write to a temp file
+            String bucketName = System.getenv().getOrDefault("AWS_S3_TEST_BUCKET", "jsoup-test-resources");
+            String key = resourceName.startsWith("/") ? resourceName.substring(1) : resourceName;
+            try (S3Client s3 = S3Client.create()) {
+                ResponseInputStream<GetObjectResponse> s3Object = s3.getObject(
+                    GetObjectRequest.builder().bucket(bucketName).key(key).build());
+                String suffix = resourceName.contains(".") ? resourceName.substring(resourceName.lastIndexOf('.')) : ".tmp";
+                File tempFile = File.createTempFile("jsoup-s3-", suffix);
+                tempFile.deleteOnExit();
+                try (OutputStream out = new FileOutputStream(tempFile)) {
+                    byte[] buf = new byte[8192];
+                    int read;
+                    while ((read = s3Object.read(buf)) != -1) {
+                        out.write(buf, 0, read);
+                    }
+                }
+                return tempFile;
+            }
         } catch (URISyntaxException e) {
             throw new IllegalStateException(e);
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to retrieve resource from S3: " + resourceName, e);
         }
     }
 

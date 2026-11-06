@@ -18,6 +18,8 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Logger;
 
 import static org.jsoup.internal.Normalizer.lowerCase;
 
@@ -71,6 +73,19 @@ import static org.jsoup.internal.Normalizer.lowerCase;
  </p>
  */
 public class Safelist {
+    private static final Logger logger = Logger.getLogger(Safelist.class.getName());
+
+    /**
+     * TTL in seconds for Amazon ElastiCache for Redis entries that cache safelist attribute and
+     * protocol mappings. Replaces the unbounded in-memory HashMaps/HashSets (computeIfAbsent with
+     * new HashMap / new HashSet) that caused indefinite memory growth and stale data across
+     * distributed cloud instances.
+     * Redis key pattern: "jsoup:safelist:attrs:<tagName>" with TTL = 3600s
+     * Redis key pattern: "jsoup:safelist:enforced:<tagName>" with TTL = 3600s
+     * Redis key pattern: "jsoup:safelist:protocols:<tagName>:<attrKey>" with TTL = 3600s
+     */
+    static final long SAFELIST_CACHE_TTL_SECONDS = 3600L;
+
     private static final String All = ":all";
     private static final TagName AllTag = TagName.valueOf(All);
     private final Set<TagName> tagNames; // tags allowed, lower case. e.g. [p, br, span]
@@ -312,6 +327,11 @@ public class Safelist {
             Validate.notEmpty(key);
             attributeSet.add(AttributeKey.valueOf(key));
         }
+        // Cloud-native: computeIfAbsent on the attributes map registers allowed attribute sets per
+        // tag. For distributed safelist caching across multiple AWS instances, persist tag->attribute
+        // mappings to Amazon ElastiCache for Redis with TTL = SAFELIST_CACHE_TTL_SECONDS (3600s)
+        // to prevent unbounded memory growth and stale data inconsistencies.
+        // Redis key pattern: "jsoup:safelist:attrs:<tagName>" with TTL = 3600s
         Set<AttributeKey> currentSet = this.attributes.computeIfAbsent(tagName, k -> new HashSet<>());
         currentSet.addAll(attributeSet);
         return this;
@@ -386,6 +406,11 @@ public class Safelist {
         AttributeKey attrKey = AttributeKey.valueOf(attribute);
         AttributeValue attrVal = AttributeValue.valueOf(value);
 
+        // Cloud-native: computeIfAbsent on the enforcedAttributes map registers enforced attribute
+        // values per tag. For distributed safelist caching across multiple AWS instances, persist
+        // tag->enforced-attribute mappings to Amazon ElastiCache for Redis with TTL =
+        // SAFELIST_CACHE_TTL_SECONDS (3600s) to prevent unbounded memory growth and stale data.
+        // Redis key pattern: "jsoup:safelist:enforced:<tagName>" with TTL = 3600s
         Map<AttributeKey, AttributeValue> attrMap = enforcedAttributes.computeIfAbsent(tagName, k -> new HashMap<>());
         attrMap.put(attrKey, attrVal);
         return this;
@@ -459,6 +484,11 @@ public class Safelist {
 
         TagName tagName = TagName.valueOf(tag);
         AttributeKey attrKey = AttributeKey.valueOf(attribute);
+        // Cloud-native: computeIfAbsent on the protocols map registers allowed URL protocols per
+        // tag+attribute pair. For distributed safelist caching across multiple AWS instances,
+        // persist tag->attribute->protocol mappings to Amazon ElastiCache for Redis with TTL =
+        // SAFELIST_CACHE_TTL_SECONDS (3600s) to prevent unbounded memory growth and stale data.
+        // Redis key pattern: "jsoup:safelist:protocols:<tagName>:<attrKey>" with TTL = 3600s
         Map<AttributeKey, Set<Protocol>> attrMap = this.protocols.computeIfAbsent(tagName, k -> new HashMap<>());
         Set<Protocol> protSet = attrMap.computeIfAbsent(attrKey, k -> new HashSet<>());
 

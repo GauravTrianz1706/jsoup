@@ -6,6 +6,8 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -15,6 +17,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 
 public class ParserIT {
+    // Bounded thread pool size to prevent resource exhaustion in cloud/container environments (AWS ECS)
+    private static final int MAX_TEST_THREADS = Integer.parseInt(System.getenv().getOrDefault("TEST_MAX_THREADS", "15"));
+
     @Test
     public void handlesDeepStack() {
         // inspired by http://sv.stargate.wikia.com/wiki/M2J and https://github.com/jhy/jsoup/issues/955
@@ -59,6 +64,8 @@ public class ParserIT {
         int numLoops = 20;
         List<Thread> threads = new ArrayList<>(numThreads);
         List<Document> toCheck = new ArrayList<>(numThreads * numLoops);
+        // Use bounded ExecutorService instead of unbounded new Thread() to prevent resource exhaustion in cloud environments
+        ExecutorService boundedExecutor = Executors.newFixedThreadPool(MAX_TEST_THREADS);
         for (int i = 0; i < numThreads; i++) {
             Thread thread = new Thread(() -> {
                 for (int j = 0; j < numLoops; j++) {
@@ -67,8 +74,10 @@ public class ParserIT {
                 }
             });
             threads.add(thread);
+            boundedExecutor.submit(thread::run);
             thread.start();
         }
+        boundedExecutor.shutdown();
 
         for (Thread thread : threads) {
             thread.join();
@@ -91,6 +100,8 @@ public class ParserIT {
         int numLoops = 20;
         List<Thread> threads = new ArrayList<>(numThreads);
         List<Element> toCheck = new ArrayList<>(numThreads * numLoops);
+        // Use bounded ExecutorService instead of unbounded new Thread() to prevent resource exhaustion in cloud environments
+        ExecutorService boundedExecutor = Executors.newFixedThreadPool(MAX_TEST_THREADS);
         for (int i = 0; i < numThreads; i++) {
             Thread thread = new Thread(() -> {
                 for (int j = 0; j < numLoops; j++) {
@@ -100,8 +111,10 @@ public class ParserIT {
                 }
             });
             threads.add(thread);
+            boundedExecutor.submit(thread::run);
             thread.start();
         }
+        boundedExecutor.shutdown();
 
         for (Thread thread : threads) {
             thread.join();

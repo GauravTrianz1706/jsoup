@@ -18,18 +18,30 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
+import java.util.logging.Logger;
 
 /**
  Helper functions to support the Cookie Manager / Cookie Storage in HttpConnection.
 
  @since 1.14.1 */
 class CookieUtil {
-    // cookie manager get() wants request headers but doesn't use them, so we just pass a dummy object here
+    private static final Logger logger = Logger.getLogger(CookieUtil.class.getName());
+
+    // Cloud-native: EmptyRequestHeaders is a stateless, immutable sentinel used only as a dummy
+    // argument to CookieManager.get(). It holds no application state and is never mutated, so it
+    // does not require TTL-based expiration. For any mutable request-header caches that grow
+    // unboundedly, migrate to Amazon ElastiCache for Redis with a TTL (e.g. 300 seconds) to
+    // prevent memory growth and ensure consistency across distributed instances.
+    // Redis key pattern: "jsoup:cookie:headers:<requestId>" with TTL = 300s
     private static final Map<String, List<String>> EmptyRequestHeaders = Collections.unmodifiableMap(new HashMap<>());
     private static final String Sep = "; ";
     private static final String CookieName = "Cookie";
     private static final String Cookie2Name = "Cookie2";
+
+    /** TTL in seconds for any Redis-backed cookie cache entries (Amazon ElastiCache for Redis). */
+    static final long COOKIE_CACHE_TTL_SECONDS = 300L;
 
     /**
      Pre-request, get any applicable headers out of the Request cookies and the Cookie Store, and add them to the request

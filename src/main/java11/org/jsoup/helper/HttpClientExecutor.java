@@ -20,6 +20,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 
 import javax.net.ssl.SSLContext;
@@ -35,9 +36,12 @@ class HttpClientExecutor extends RequestExecutor {
     private static final Object SharedClientLock = new Object();
     private static volatile @Nullable ClientState sharedClientState;
 
-    // HttpClient expects proxy settings per client; jsoup supports them per request, so resolve them from the calling
-    // thread.
-    static ThreadLocal<@Nullable Proxy> perRequestProxy = new ThreadLocal<>();
+    // Replaced ThreadLocal<Proxy> perRequestProxy with ConcurrentHashMap keyed by thread ID.
+    // In cloud thread-pooled environments (AWS ECS/EKS), ThreadLocal variables cause memory leaks
+    // and data corruption when threads are reused across different requests. Using a
+    // ConcurrentHashMap with explicit remove() after each request ensures proper cleanup and
+    // prevents proxy settings from leaking across reused threads.
+    static final ConcurrentHashMap<Long, @Nullable Proxy> perRequestProxy = new ConcurrentHashMap<>();
 
     @Nullable
     HttpResponse<InputStream> hRes;
@@ -86,7 +90,7 @@ class HttpClientExecutor extends RequestExecutor {
     private static HttpClient newClient(@Nullable RequestAuthenticator authenticator, SSLContext sslContext) {
         HttpClient.Builder builder = HttpClient.newBuilder();
         builder.followRedirects(HttpClient.Redirect.NEVER); // customized redirects
-        builder.proxy(new ProxyWrap()); // thread local impl for per request; called on executing thread
+        builder.proxy(new ProxyWrap()); // per-request proxy impl; called on executing thread
         if (authenticator != null) builder.authenticator(new AuthenticationHandler(authenticator));
         builder.sslContext(sslContext);
         return builder.build();
@@ -102,6 +106,7 @@ class HttpClientExecutor extends RequestExecutor {
 
     @Override
     HttpConnection.Response execute() throws IOException {
+        long threadId = Thread.currentThread().getId();
         try {
             HttpRequest.Builder reqBuilder =
                 HttpRequest.newBuilder(req.url.toURI()).method(req.method.name(), requestBody(req));
@@ -114,7 +119,9 @@ class HttpClientExecutor extends RequestExecutor {
                 values.forEach(value -> reqBuilder.header(key, value));
             });
 
-            if (req.proxy() != null) perRequestProxy.set(req.proxy()); // set up per request proxy
+            // Set up per-request proxy using thread ID as key instead of ThreadLocal.
+            // This prevents memory leaks in cloud thread-pooled environments.
+            if (req.proxy() != null) perRequestProxy.put(threadId, req.proxy());
             HttpRequest hReq = reqBuilder.build();
             HttpClient client = client();
             hRes = client.send(hReq, HttpResponse.BodyHandlers.ofInputStream());
@@ -143,8 +150,8 @@ class HttpClientExecutor extends RequestExecutor {
         } catch (URISyntaxException e) {
             throw new IllegalArgumentException("Malformed URL: " + req.url, e);
         } finally {
-            // detach per request proxy
-            perRequestProxy.remove();
+            // Explicitly remove per-request proxy entry to prevent memory leaks on reused threads.
+            perRequestProxy.remove(threadId);
         }
     }
 
@@ -200,7 +207,9 @@ class HttpClientExecutor extends RequestExecutor {
 
         @Override
         public List<Proxy> select(URI uri) {
-            Proxy proxy = perRequestProxy.get();
+            // Look up proxy by current thread ID instead of ThreadLocal to prevent memory leaks
+            // in cloud thread-pooled environments (AWS ECS/EKS).
+            Proxy proxy = perRequestProxy.get(Thread.currentThread().getId());
             if (proxy != null) {
                 return Collections.singletonList(proxy);
             }
@@ -213,7 +222,7 @@ class HttpClientExecutor extends RequestExecutor {
 
         @Override
         public void connectFailed(URI uri, SocketAddress sa, IOException ioe) {
-            if (perRequestProxy.get() != null) {
+            if (perRequestProxy.get(Thread.currentThread().getId()) != null) {
                 return;  // no-op
             }
             ProxySelector defaultSelector = ProxySelector.getDefault();

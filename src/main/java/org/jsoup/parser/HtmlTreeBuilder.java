@@ -20,6 +20,7 @@ import java.io.Reader;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import org.jsoup.helper.GracefulShutdownManager;
 
 import static org.jsoup.internal.StringUtil.inSorted;
 import static org.jsoup.parser.HtmlTreeBuilderState.Constants.Headings;
@@ -1116,7 +1117,8 @@ public class HtmlTreeBuilder extends TreeBuilder {
      */
     void generateImpliedEndTags(boolean thorough) {
         final int option = thorough ? HtmlTagOptions.ThoroughImpliedEnd : HtmlTagOptions.ImpliedEnd;
-        while (true) {
+        // Check shutdown flag to allow graceful termination on SIGTERM (EKS/ECS cloud environments)
+        while (!GracefulShutdownManager.isShuttingDown()) {
             if (!hasCurrentElement()) break;
             Tag tag = currentElement().tag();
             if (!tag.hasParserOption(option))
@@ -1215,7 +1217,8 @@ public class HtmlTreeBuilder extends TreeBuilder {
         int ceil = size - MaxUsedFormattingElements; if (ceil <0) ceil = 0;
         int pos = size - 1;
         boolean skip = false;
-        while (true) {
+        // Check shutdown flag to allow graceful termination on SIGTERM (EKS/ECS cloud environments)
+        while (!GracefulShutdownManager.isShuttingDown()) {
             if (pos == ceil) { // step 4. if none before, skip to 8
                 skip = true;
                 break;
@@ -1224,7 +1227,8 @@ public class HtmlTreeBuilder extends TreeBuilder {
             if (entry == null || onStack(entry)) // step 6 - neither marker nor on stack
                 break; // jump to 8, else continue back to 4
         }
-        while(true) {
+        // Check shutdown flag to allow graceful termination on SIGTERM (EKS/ECS cloud environments)
+        while(!GracefulShutdownManager.isShuttingDown()) {
             if (!skip) // step 7: on later than entry
                 entry = formattingElements.get(++pos);
             entry = Validate.expectNotNull(entry); // should not occur, as we break at last element

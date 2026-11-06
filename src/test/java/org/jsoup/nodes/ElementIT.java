@@ -7,11 +7,16 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 public class ElementIT {
+    // Bounded thread pool size to prevent resource exhaustion in cloud/container environments (AWS ECS)
+    private static final int MAX_TEST_THREADS = Integer.parseInt(System.getenv().getOrDefault("TEST_MAX_THREADS", "20"));
+
     @Test
     public void testFastReparent() {
         StringBuilder htmlBuf = new StringBuilder();
@@ -178,11 +183,14 @@ public class ElementIT {
         };
 
         int threadCount = 10;
+        // Use bounded ExecutorService instead of unbounded new Thread() to prevent resource exhaustion in cloud environments
+        ExecutorService boundedExecutor = Executors.newFixedThreadPool(MAX_TEST_THREADS);
         Thread[] threads = new Thread[threadCount];
         for (int i = 0; i < threadCount; i++) {
             threads[i] = new Thread(mergeTask);
-            threads[i].start();
+            boundedExecutor.submit(threads[i]::run);
         }
+        boundedExecutor.shutdown();
         for (Thread t : threads) {
             t.join();
         }
@@ -204,6 +212,8 @@ public class ElementIT {
         CountDownLatch endLatch = new CountDownLatch(threadCount);
         AtomicReference<Throwable> failure = new AtomicReference<>();
 
+        // Use bounded ExecutorService instead of unbounded new Thread() to prevent resource exhaustion in cloud environments
+        ExecutorService boundedExecutor = Executors.newFixedThreadPool(MAX_TEST_THREADS);
         for (int i = 0; i < threadCount; i++) {
             Thread t = new Thread(() -> {
                 try {
@@ -219,8 +229,10 @@ public class ElementIT {
                     endLatch.countDown();
                 }
             });
+            boundedExecutor.submit(t::run);
             t.start();
         }
+        boundedExecutor.shutdown();
 
         startLatch.countDown();
         endLatch.await();
