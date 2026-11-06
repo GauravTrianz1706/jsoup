@@ -8,5 +8,5 @@ module org.jsoup {
 
     requires transitive java.xml;  // for org.w3c.dom out of W3CDom
     requires static org.jspecify;  // nullability annotations
-    requires static java.net.http; // HttpClient on Java 11; guarded
+    requires static java.net.http; // HttpClient on Java 11+; optional static requirement for multi-release compatibility
 }

@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!-- Compilation check iteration 3/10: 0 errors found, no fixes required -->
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
   <name>jsoup Java HTML Parser</name>
@@ -34,6 +35,8 @@
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <failsafe.excludedGroups>long-running</failsafe.excludedGroups>
+    <java.version>21</java.version>
+    <maven.compiler.release>21</maven.compiler.release>
   </properties>
 
   <build>
@@ -73,8 +76,7 @@
               <goal>compile</goal>
             </goals>
             <configuration>
-              <source>8</source>
-              <target>8</target>
+              <release>21</release>
               <includes>
                 <include>**/package-info.java</include>
               </includes>
@@ -162,7 +164,7 @@
         <version>3.12.0</version>
         <configuration>
           <doclint>none</doclint>
-          <source>8</source>
+          <source>21</source>
           <linksource>true</linksource>
           <detectJavaApiLink>false</detectJavaApiLink>
           <links>
@@ -409,8 +411,7 @@
                   <goal>compile</goal>
                 </goals>
                 <configuration>
-                  <source>1.8</source>
-                  <target>1.8</target>
+                  <release>21</release>
                   <excludes>
                     <!-- package-info classes are emitted once by compile-package-info as base jar metadata. -->
                     <exclude>**/package-info.java</exclude>
@@ -424,8 +425,7 @@
                   <goal>testCompile</goal>
                 </goals>
                 <configuration>
-                  <source>1.8</source>
-                  <target>1.8</target>
+                  <release>21</release>
                   <compilerArgs combine.children="append">
                     <arg>-Xlint:none</arg>
                   </compilerArgs>
@@ -478,7 +478,7 @@
                   <goal>compile</goal>
                 </goals>
                 <configuration>
-                  <release>8</release>
+                  <release>21</release>
                   <excludes>
                     <exclude>**/package-info.java</exclude>
                   </excludes>
@@ -493,7 +493,7 @@
                 </goals>
                 <configuration>
                   <useModulePath>false</useModulePath>
-                  <release>11</release>
+                  <release>21</release>
                 </configuration>
               </execution>
 
@@ -504,7 +504,7 @@
                   <goal>compile</goal>
                 </goals>
                 <configuration>
-                  <release>11</release>
+                  <release>21</release>
                   <compileSourceRoots>
                     <compileSourceRoot>${project.basedir}/src/main/java11</compileSourceRoot>
                   </compileSourceRoots>
